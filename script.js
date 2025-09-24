@@ -300,7 +300,7 @@ class HTTPPingTool {
             
             const requestOptions = {
                 method: method,
-                mode: 'cors',
+                mode: 'cors', // We'll handle CORS errors explicitly
                 redirect: this.followRedirectsCheckbox.checked ? 'follow' : 'manual',
                 signal: controller.signal,
                 headers: {
@@ -328,7 +328,7 @@ class HTTPPingTool {
             if (!this.followRedirectsCheckbox.checked && response.status >= 300 && response.status < 400) {
                 const location = response.headers.get('Location');
                 this.addTerminalLine(
-                    `${parsedUrl.fullUrl}: HTTP ${response.status} ${response.statusText} (redirect to ${location})`,
+                    `64 bytes from ${this.resolvedIP}: seq=${sequence} time=${responseTime}ms HTTP/${response.status} ${response.statusText} (redirect to ${location})`,
                     'warning'
                 );
                 
@@ -344,7 +344,7 @@ class HTTPPingTool {
                 this.successCount++;
                 this.responseTimes.push(responseTime);
                 
-                let statusLine = `${parsedUrl.fullUrl}: HTTP ${response.status} ${response.statusText}: seq=${sequence} time=${responseTime}ms`;
+                let statusLine = `64 bytes from ${this.resolvedIP}: seq=${sequence} time=${responseTime}ms HTTP/${response.status} ${response.statusText}`;
                 
                 if (this.verboseModeCheckbox.checked) {
                     statusLine += ` size=${response.headers.get('content-length') || 'unknown'}`;
@@ -362,7 +362,7 @@ class HTTPPingTool {
             } else {
                 // Error response
                 this.addTerminalLine(
-                    `${parsedUrl.fullUrl}: HTTP ${response.status} ${response.statusText}: seq=${sequence} time=${responseTime}ms`,
+                    `64 bytes from ${this.resolvedIP}: seq=${sequence} time=${responseTime}ms HTTP/${response.status} ${response.statusText}`,
                     'error'
                 );
             }
@@ -373,16 +373,51 @@ class HTTPPingTool {
             
             let errorMessage = '';
             if (error.name === 'AbortError') {
-                errorMessage = `${parsedUrl.fullUrl}: Request timeout (>${timeout}ms): seq=${sequence}`;
+                errorMessage = `From ${this.resolvedIP}: seq=${sequence} Request timeout (>${timeout}ms)`;
             } else if (error.message.includes('CORS')) {
-                errorMessage = `${parsedUrl.fullUrl}: CORS policy blocked: seq=${sequence}`;
+                // CORS error - show clear message
+                this.addTerminalLine(`From ${this.resolvedIP}: seq=${sequence} CORS policy blocked`, 'error');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('⚠️  APPLICATION NOT WORKING BECAUSE OF CORS ERROR', 'error');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('CORS (Cross-Origin Resource Sharing) prevents this browser-based', 'warning');
+                this.addTerminalLine('ping tool from accessing many websites directly.', 'warning');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('Solutions:', 'info');
+                this.addTerminalLine('1. Use CORS-enabled endpoints like httpbin.org', 'info');
+                this.addTerminalLine('2. Install a CORS browser extension', 'info');
+                this.addTerminalLine('3. Use a local proxy server', 'info');
+                this.addTerminalLine('4. Test with APIs that support CORS', 'info');
+                this.addTerminalLine('', '');
+                this.stopPing();
+                return;
             } else if (error.message.includes('Failed to fetch')) {
-                errorMessage = `${parsedUrl.fullUrl}: Network unreachable: seq=${sequence}`;
+                // This is likely a CORS error disguised as "Failed to fetch"
+                this.addTerminalLine(`From ${this.resolvedIP}: seq=${sequence} Network unreachable (likely CORS)`, 'error');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('⚠️  APPLICATION NOT WORKING BECAUSE OF CORS ERROR', 'error');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('The "Network unreachable" error is typically caused by CORS', 'warning');
+                this.addTerminalLine('(Cross-Origin Resource Sharing) policy blocking the request.', 'warning');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('This is a browser security feature that prevents websites', 'warning');
+                this.addTerminalLine('from making requests to other domains without permission.', 'warning');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('Try these CORS-enabled endpoints instead:', 'info');
+                this.addTerminalLine('• httpbin.org/get', 'info');
+                this.addTerminalLine('• jsonplaceholder.typicode.com/posts/1', 'info');
+                this.addTerminalLine('• api.github.com', 'info');
+                this.addTerminalLine('• httpstat.us/200', 'info');
+                this.addTerminalLine('', '');
+                this.stopPing();
+                return;
             } else {
-                errorMessage = `${parsedUrl.fullUrl}: ${error.message}: seq=${sequence}`;
+                errorMessage = `From ${this.resolvedIP}: seq=${sequence} ${error.message}`;
             }
             
-            this.addTerminalLine(errorMessage, 'error');
+            if (errorMessage) {
+                this.addTerminalLine(errorMessage, 'error');
+            }
         }
     }
     
