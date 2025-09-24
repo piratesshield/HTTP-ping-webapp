@@ -298,9 +298,10 @@ class HTTPPingTool {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);
             
+            // First try with CORS mode
             const requestOptions = {
                 method: method,
-                mode: 'cors', // We'll handle CORS errors explicitly
+                mode: 'cors',
                 redirect: this.followRedirectsCheckbox.checked ? 'follow' : 'manual',
                 signal: controller.signal,
                 headers: {
@@ -318,7 +319,54 @@ class HTTPPingTool {
                 requestOptions.headers['Content-Type'] = 'application/json';
             }
             
-            const response = await fetch(parsedUrl.fullUrl, requestOptions);
+            let response;
+            try {
+                response = await fetch(parsedUrl.fullUrl, requestOptions);
+            } catch (corsError) {
+                // If CORS fails, try no-cors mode for GET requests to at least measure timing
+                if (method === 'GET') {
+                    clearTimeout(timeoutId);
+                    const noCorsController = new AbortController();
+                    const noCorsTimeoutId = setTimeout(() => noCorsController.abort(), timeout);
+                    
+                    try {
+                        const noCorsOptions = {
+                            method: 'GET',
+                            mode: 'no-cors',
+                            signal: noCorsController.signal,
+                            headers: {
+                                'Cache-Control': 'no-cache',
+                                'Pragma': 'no-cache'
+                            }
+                        };
+                        
+                        response = await fetch(parsedUrl.fullUrl, noCorsOptions);
+                        clearTimeout(noCorsTimeoutId);
+                        
+                        const endTime = performance.now();
+                        const responseTime = Math.round(endTime - startTime);
+                        
+                        // no-cors mode doesn't give us status, but we can measure timing
+                        this.addTerminalLine(
+                            `64 bytes from ${this.resolvedIP}: seq=${sequence} time=${responseTime}ms (no-cors mode - status unknown)`,
+                            'warning'
+                        );
+                        
+                        if (this.verboseModeCheckbox.checked) {
+                            this.addTerminalLine('Note: no-cors mode prevents reading response details', 'info');
+                        }
+                        
+                        return;
+                        
+                    } catch (noCorsError) {
+                        clearTimeout(noCorsTimeoutId);
+                        throw corsError; // Fall back to original CORS error
+                    }
+                } else {
+                    throw corsError;
+                }
+            }
+            
             clearTimeout(timeoutId);
             
             const endTime = performance.now();
@@ -388,6 +436,7 @@ class HTTPPingTool {
                 this.addTerminalLine('2. Install a CORS browser extension', 'info');
                 this.addTerminalLine('3. Use a local proxy server', 'info');
                 this.addTerminalLine('4. Test with APIs that support CORS', 'info');
+                this.addTerminalLine('5. Launch Chrome with --disable-web-security flag', 'info');
                 this.addTerminalLine('', '');
                 this.stopPing();
                 return;
@@ -408,6 +457,9 @@ class HTTPPingTool {
                 this.addTerminalLine('• jsonplaceholder.typicode.com/posts/1', 'info');
                 this.addTerminalLine('• api.github.com', 'info');
                 this.addTerminalLine('• httpstat.us/200', 'info');
+                this.addTerminalLine('', '');
+                this.addTerminalLine('Or disable CORS in Chrome:', 'info');
+                this.addTerminalLine('chrome --disable-web-security --user-data-dir=/tmp/chrome', 'info');
                 this.addTerminalLine('', '');
                 this.stopPing();
                 return;
